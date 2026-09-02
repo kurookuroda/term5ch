@@ -2,6 +2,22 @@
 
 Ruby製CLI「x5ch」（5chブラウザ + Discord転送ツール）をGoに移植したもの。
 
+## サブコマンド
+
+対話TUI以外に、非対話で使えるサブコマンドがあります。
+
+```bash
+x5ch search <keyword>                          # 全板検索(JSON出力、TTS連携等向け)
+x5ch read <board_url> <dat_file>                # スレ本文取得(JSON出力、TTS連携等向け)
+x5ch export <board_url> <dat_file> [--since-num N]  # アーカイブ用の完全なJSON出力(BBSミラー用)
+```
+
+`search`/`read`は `{"ok": true/false, ...}` という封筒構造で結果を返します(失敗時は`error`/`error_type`)。
+`export`は `source`/`thread`/`posts` を持つアーカイブ向けの完全な構造で、`mail`欄のデコード・
+`reply_to`(返信関係)・`posted_at`のISO8601変換などを含みます。
+
+**未実装**: 複数スレを一括で`export`する `export-batch` サブコマンドはまだありません。
+
 ## ビルド
 
 ```bash

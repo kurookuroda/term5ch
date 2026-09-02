@@ -130,3 +130,70 @@ func buildReadURL(boardURL, datFile string) (string, error) {
 
 	return u.Scheme + "://" + u.Host + "/test/read.cgi/" + boardName + "/" + datNum + "/", nil
 }
+
+// ExportThreadData はアーカイブ用の完全なJSON構造でスレッドを取得する。
+// sinceNum が0より大きい場合、その番号以下のレスは posts から除外する
+// (thread.post_count は除外前の総レス数のまま)。
+func (b *Browser) ExportThreadData(boardURL, datFile string, sinceNum int) (*ExportResult, error) {
+	readURL, err := buildReadURL(boardURL, datFile)
+	if err != nil {
+		return nil, err
+	}
+
+	body, finalURL, err := b.fetcher.Fetch(readURL)
+	if err != nil {
+		return nil, fmt.Errorf("スレッド取得に失敗しました: %w", err)
+	}
+
+	htmlStr, err := decodeToUTF8(body)
+	if err != nil {
+		return nil, fmt.Errorf("エンコーディング変換エラー: %w", err)
+	}
+
+	if strings.Contains(htmlStr, "dat落ち") {
+		return nil, ErrThreadGone
+	}
+
+	u, err := url.Parse(boardURL)
+	if err != nil {
+		return nil, fmt.Errorf("board_urlの解析に失敗: %w", err)
+	}
+	datNum := strings.TrimSuffix(datFile, ".dat")
+	threadExternalID := fmt.Sprintf("5ch:%s%s%s", u.Host, u.Path, datNum)
+
+	allPosts := ParsePostsForExport(htmlStr, threadExternalID)
+
+	title := ""
+	if m := titleTagPattern.FindStringSubmatch(htmlStr); m != nil {
+		title = strings.TrimSpace(titleSuffixPattern.ReplaceAllString(strings.TrimSpace(m[1]), ""))
+	}
+
+	posts := allPosts
+	if sinceNum > 0 {
+		var filtered []ExportPost
+		for _, p := range allPosts {
+			if p.Num > sinceNum {
+				filtered = append(filtered, p)
+			}
+		}
+		posts = filtered
+	}
+
+	return &ExportResult{
+		Source: ExportSource{
+			Provider:  "5ch",
+			BoardURL:  boardURL,
+			DatFile:   datFile,
+			ThreadURL: finalURL,
+			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
+		},
+		Thread: ExportThread{
+			ExternalID: threadExternalID,
+			Title:      title,
+			BoardName:  extractBoardName(htmlStr),
+			CreatedAt:  datTimestampToRFC3339(datFile),
+			PostCount:  len(allPosts),
+		},
+		Posts: posts,
+	}, nil
+}

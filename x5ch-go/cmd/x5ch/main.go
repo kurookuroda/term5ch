@@ -25,6 +25,20 @@ type menuEntry struct {
 var errInterrupted = errors.New("interrupted")
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "export":
+			runExportCommand(os.Args[2:])
+			return
+		case "search":
+			runSearchCommand(os.Args[2:])
+			return
+		case "read":
+			runReadCommand(os.Args[2:])
+			return
+		}
+	}
+
 	cfg := loadConfig()
 
 	lockFile, err := acquireLockWithHandoff(cfg.LockFile, cfg.PIDFile)
