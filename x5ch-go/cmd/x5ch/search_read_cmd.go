@@ -25,6 +25,7 @@ type jsonEnvelope struct {
 	OK        bool               `json:"ok"`
 	Error     string             `json:"error,omitempty"`
 	ErrorType string             `json:"error_type,omitempty"`
+	ErrorURL  string             `json:"error_url,omitempty"` // BrowserErrorが失敗対象のURLを持つ場合のみ埋まる(診断用)
 	Results   []jsonSearchResult `json:"results,omitempty"`
 	Thread    *jsonThread        `json:"thread,omitempty"`
 	Posts     []jsonPost         `json:"posts,omitempty"`
@@ -65,6 +66,15 @@ func classifyErrorType(err error) string {
 	return "other"
 }
 
+// extractErrorURL はBrowserError(の派生含む)が失敗対象のURLを持っていればそれを返す。診断用。
+func extractErrorURL(err error) string {
+	var browserErr *fivechbrowser.BrowserError
+	if errors.As(err, &browserErr) {
+		return browserErr.URL
+	}
+	return ""
+}
+
 func writeEnvelope(env jsonEnvelope) {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
@@ -85,7 +95,7 @@ func runSearchCommand(args []string) {
 
 	results, err := browser.SearchGlobal(keyword)
 	if err != nil {
-		writeEnvelope(jsonEnvelope{OK: false, Error: err.Error(), ErrorType: classifyErrorType(err)})
+		writeEnvelope(jsonEnvelope{OK: false, Error: err.Error(), ErrorType: classifyErrorType(err), ErrorURL: extractErrorURL(err)})
 		os.Exit(1)
 	}
 
@@ -117,7 +127,7 @@ func runReadCommand(args []string) {
 	t := fivechbrowser.ThreadInfo{BoardURL: boardURL, DatFile: datFile}
 	posts, err := browser.GetThreadData(&t)
 	if err != nil {
-		writeEnvelope(jsonEnvelope{OK: false, Error: err.Error(), ErrorType: classifyErrorType(err)})
+		writeEnvelope(jsonEnvelope{OK: false, Error: err.Error(), ErrorType: classifyErrorType(err), ErrorURL: extractErrorURL(err)})
 		os.Exit(1)
 	}
 

@@ -1,7 +1,6 @@
 package pager
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"golang.org/x/term"
 
 	"x5ch-go/fivechbrowser"
+	"x5ch-go/keyreader"
 )
 
 // ContentType はPagerに渡すコンテンツ項目の種類。Ruby版 content_list の :type に対応。
@@ -142,7 +142,7 @@ func splitLines(s string) []string {
 // Ruby版との差異: Ruby版は STDIN.getch でキー入力の瞬間だけ一時的にrawモードにするが、
 // Go版は開始時に一度だけrawモードにして終了時に復元する(一般的なGo TUIの作法に合わせた、
 // 意図的な設計変更)。そのため出力は "\r\n" を明示的に使う必要がある。
-func (p *Pager) Start(in io.Reader, out io.Writer, fd int) (*Result, error) {
+func (p *Pager) Start(kr *keyreader.KeyReader, out io.Writer, fd int) (*Result, error) {
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		return nil, fmt.Errorf("端末をrawモードにできません: %w", err)
@@ -155,8 +155,6 @@ func (p *Pager) Start(in io.Reader, out io.Writer, fd int) (*Result, error) {
 	}
 	rows, cols := height, width
 
-	reader := bufio.NewReader(in)
-
 	currentLine := p.jumpIndex
 	maxScroll := maxInt(len(p.lines)-rows, 0)
 	if currentLine > maxScroll {
@@ -167,7 +165,7 @@ func (p *Pager) Start(in io.Reader, out io.Writer, fd int) (*Result, error) {
 		maxScroll = maxInt(len(p.lines)-rows, 0)
 		p.render(out, currentLine, rows, cols)
 
-		b, err := reader.ReadByte()
+		b, err := kr.ReadByte()
 		if err != nil {
 			return nil, err
 		}
@@ -205,11 +203,11 @@ func (p *Pager) Start(in io.Reader, out io.Writer, fd int) (*Result, error) {
 		case 'G':
 			currentLine = maxScroll
 		case 0x1b: // ESC
-			b2, err := reader.ReadByte()
+			b2, err := kr.ReadByte()
 			if err != nil || b2 != '[' {
 				continue
 			}
-			b3, err := reader.ReadByte()
+			b3, err := kr.ReadByte()
 			if err != nil {
 				continue
 			}

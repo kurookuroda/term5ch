@@ -12,6 +12,7 @@ import (
 	"x5ch-go/discord"
 	"x5ch-go/fivechbrowser"
 	"x5ch-go/history"
+	"x5ch-go/keyreader"
 	"x5ch-go/selector"
 	"x5ch-go/transfer"
 )
@@ -29,6 +30,9 @@ func main() {
 		switch os.Args[1] {
 		case "export":
 			runExportCommand(os.Args[2:])
+			return
+		case "export-batch":
+			runExportBatchCommand(os.Args[2:])
 			return
 		case "search":
 			runSearchCommand(os.Args[2:])
@@ -63,9 +67,9 @@ func main() {
 	discordMgr := discord.NewManager(cfg.DiscordBotToken, cfg.DiscordChannelID)
 	worker := transfer.NewWorker(browser, discordMgr, histMgr, cfg.QueueFile)
 
-	in := os.Stdin
+	kr := keyreader.New(os.Stdin)
 	out := os.Stdout
-	fd := int(in.Fd())
+	fd := int(os.Stdin.Fd())
 
 	// raw モード中(selector/pager画面)のCtrl+Cはバイト0x03として各所で検知され
 	// ActionInterrupt/errInterrupted として伝播する。raw モードを抜けている間
@@ -77,7 +81,7 @@ func main() {
 		cleanupAndExit(worker, cfg.PIDFile, lockFile)
 	}()
 
-	err = runMenuLoop(browser, histMgr, worker, discordMgr, in, out, fd)
+	err = runMenuLoop(browser, histMgr, worker, discordMgr, kr, out, fd)
 
 	if errors.Is(err, errInterrupted) {
 		cleanupAndExit(worker, cfg.PIDFile, lockFile)
@@ -106,7 +110,7 @@ func cleanupAndExit(worker *transfer.Worker, pidFile string, lockFile *os.File) 
 }
 
 // runMenuLoop はメインメニュー(カテゴリ一覧+最近読んだスレッド)のループ。Ruby版 main() に対応。
-func runMenuLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, in io.Reader, out io.Writer, fd int) error {
+func runMenuLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, kr *keyreader.KeyReader, out io.Writer, fd int) error {
 	lastCatPage := 0
 
 	for {
@@ -130,14 +134,14 @@ func runMenuLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *
 			})
 		}
 
-		catResult, err := selector.Run(in, out, fd, selector.Config[menuEntry]{
+		catResult, err := selector.Run(kr, out, fd, selector.Config[menuEntry]{
 			Title:       "メインメニュー",
 			Items:       items,
 			StartPage:   lastCatPage,
 			StatusLine:  worker.StatusString,
 			SearchLabel: "全スレ検索",
 			OnGlobalSearch: func(keyword string) bool {
-				return runGlobalSearch(browser, hist, worker, discordMgr, keyword, in, out, fd)
+				return runGlobalSearch(browser, hist, worker, discordMgr, keyword, kr, out, fd)
 			},
 			OnQueueManage:   func(sio *selector.IO) bool { return manageQueue(sio, worker) },
 			OnHistoryManage: func(sio *selector.IO) bool { return manageHistory(sio, hist) },
@@ -165,17 +169,17 @@ func runMenuLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			showRecentStream(browser, hist, recent, in, out, fd)
+			showRecentStream(browser, hist, recent, kr, out, fd)
 			continue
 		}
 
-		if err := runBoardLoop(browser, hist, worker, discordMgr, entry.Category, in, out, fd); err != nil {
+		if err := runBoardLoop(browser, hist, worker, discordMgr, entry.Category, kr, out, fd); err != nil {
 			return err
 		}
 	}
 }
 
-func runBoardLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, cat fivechbrowser.Category, in io.Reader, out io.Writer, fd int) error {
+func runBoardLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, cat fivechbrowser.Category, kr *keyreader.KeyReader, out io.Writer, fd int) error {
 	lastBoardPage := 0
 
 	for {
@@ -188,7 +192,7 @@ func runBoardLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker 
 			})
 		}
 
-		boardResult, err := selector.Run(in, out, fd, selector.Config[fivechbrowser.Board]{
+		boardResult, err := selector.Run(kr, out, fd, selector.Config[fivechbrowser.Board]{
 			Title:          cat.Title,
 			Items:          items,
 			StartPage:      lastBoardPage,
@@ -216,13 +220,13 @@ func runBoardLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker 
 		lastBoardPage = boardResult.Page
 		board := boardResult.Value
 
-		if err := runThreadLoop(browser, hist, worker, discordMgr, board, in, out, fd); err != nil {
+		if err := runThreadLoop(browser, hist, worker, discordMgr, board, kr, out, fd); err != nil {
 			return err
 		}
 	}
 }
 
-func runThreadLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, board fivechbrowser.Board, in io.Reader, out io.Writer, fd int) error {
+func runThreadLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, board fivechbrowser.Board, kr *keyreader.KeyReader, out io.Writer, fd int) error {
 	lastThreadPage := 0
 	forceReload := false
 
@@ -245,7 +249,7 @@ func runThreadLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker
 			}
 		}
 
-		threadResult, err := selector.Run(in, out, fd, selector.Config[threadItemState]{
+		threadResult, err := selector.Run(kr, out, fd, selector.Config[threadItemState]{
 			Title:          board.Title,
 			Items:          items,
 			StartPage:      lastThreadPage,
@@ -278,23 +282,23 @@ func runThreadLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker
 		}
 
 		t := threadResult.Value.Thread
-		showThread(browser, hist, t, in, out, fd)
+		showThread(browser, hist, t, kr, out, fd)
 	}
 }
 
 // runGlobalSearch はカテゴリ画面からの全板検索('s')。結果一覧を別のselector.Runで表示し、
 // 選択されたスレッドを showThread で読む、というネストしたループ。Ruby版のselect_item再帰呼び出しに対応。
 // 戻り値はCtrl+Cによる中断有無。
-func runGlobalSearch(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, keyword string, in io.Reader, out io.Writer, fd int) bool {
+func runGlobalSearch(browser *fivechbrowser.Browser, hist *history.Manager, worker *transfer.Worker, discordMgr *discord.Manager, keyword string, kr *keyreader.KeyReader, out io.Writer, fd int) bool {
 	results, err := browser.SearchGlobal(keyword)
 	if err != nil {
 		fmt.Fprintln(out, "検索エラー:", err)
-		waitForKey(in)
+		waitForKey(kr)
 		return false
 	}
 	if len(results) == 0 {
 		fmt.Fprintln(out, "見つかりませんでした。")
-		waitForKey(in)
+		waitForKey(kr)
 		return false
 	}
 
@@ -309,7 +313,7 @@ func runGlobalSearch(browser *fivechbrowser.Browser, hist *history.Manager, work
 			}
 		}
 
-		result, err := selector.Run(in, out, fd, selector.Config[threadItemState]{
+		result, err := selector.Run(kr, out, fd, selector.Config[threadItemState]{
 			Title:         fmt.Sprintf("全板検索結果: %s", keyword),
 			Items:         items,
 			StartPage:     lastPage,
@@ -331,7 +335,7 @@ func runGlobalSearch(browser *fivechbrowser.Browser, hist *history.Manager, work
 		case selector.ActionInterrupt:
 			return true
 		case selector.ActionSelected:
-			showThread(browser, hist, result.Value.Thread, in, out, fd)
+			showThread(browser, hist, result.Value.Thread, kr, out, fd)
 		}
 	}
 }

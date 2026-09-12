@@ -1,7 +1,6 @@
 package selector
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +9,8 @@ import (
 	"time"
 
 	"golang.org/x/term"
+
+	"x5ch-go/keyreader"
 )
 
 // Item はリストの1項目。Text は事前レンダリング済みの表示文字列(色・マーク付け済み)、
@@ -69,7 +70,7 @@ type Config[T any] struct {
 
 // IO はコールバックに渡される、raw モードを維持したまま行入力・単キー入力を行うためのヘルパー。
 type IO struct {
-	kr  *keyReader
+	kr  *keyreader.KeyReader
 	out io.Writer
 }
 
@@ -78,12 +79,7 @@ func (io2 *IO) Println(s string) { fmt.Fprint(io2.out, s+"\r\n") }
 
 // ReadKey は1バイト読めるまでブロックする(タイムアウト無し)。
 func (io2 *IO) ReadKey() (byte, error) {
-	select {
-	case b := <-io2.kr.ch:
-		return b, nil
-	case err := <-io2.kr.errCh:
-		return 0, err
-	}
+	return io2.kr.ReadByte()
 }
 
 // ReadLine は raw モードのまま、Enterまで1行を手動エコー・バックスペース処理しながら読む。
@@ -113,27 +109,6 @@ func (io2 *IO) ReadLine() (string, error) {
 	}
 }
 
-type keyReader struct {
-	ch    chan byte
-	errCh chan error
-}
-
-func startKeyReader(r io.Reader) *keyReader {
-	kr := &keyReader{ch: make(chan byte), errCh: make(chan error, 1)}
-	br := bufio.NewReader(r)
-	go func() {
-		for {
-			b, err := br.ReadByte()
-			if err != nil {
-				kr.errCh <- err
-				return
-			}
-			kr.ch <- b
-		}
-	}()
-	return kr
-}
-
 type sentinelErr string
 
 func (e sentinelErr) Error() string { return string(e) }
@@ -147,7 +122,12 @@ var ErrInterrupted error = errInterrupt
 
 // Run はページング・数字選択・検索・各種アクションキーを処理するメインループ。
 // Ruby版 select_item に対応。
-func Run[T any](in io.Reader, out io.Writer, fd int, cfg Config[T]) (Result[T], error) {
+//
+// kr は呼び出し元(main.go)がプログラム開始時に1回だけ生成し、全画面で使い回す
+// 共有KeyReaderを渡すこと。Run() ごとに新しい読み取りgoroutineを生成すると、
+// 呼び出しを重ねるたびに前回分が生き残り続け、次の入力を横取りしてしまう
+// (実際に複数回の画面遷移でフリーズを再現・確認済み)。
+func Run[T any](kr *keyreader.KeyReader, out io.Writer, fd int, cfg Config[T]) (Result[T], error) {
 	var zero T
 	if len(cfg.Items) == 0 {
 		return Result[T]{Action: ActionBack, Value: zero, Page: 0}, nil
@@ -163,7 +143,6 @@ func Run[T any](in io.Reader, out io.Writer, fd int, cfg Config[T]) (Result[T], 
 	}
 	defer term.Restore(fd, oldState)
 
-	kr := startKeyReader(in)
 	sio := &IO{kr: kr, out: out}
 
 	originalItems := cfg.Items
@@ -238,8 +217,8 @@ func Run[T any](in io.Reader, out io.Writer, fd int, cfg Config[T]) (Result[T], 
 		var b byte
 		var readErr error
 		select {
-		case b = <-kr.ch:
-		case readErr = <-kr.errCh:
+		case b = <-kr.Chan():
+		case readErr = <-kr.ErrChan():
 		case <-time.After(1 * time.Second):
 			continue
 		}

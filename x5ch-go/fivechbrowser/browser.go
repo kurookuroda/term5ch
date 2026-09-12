@@ -12,6 +12,19 @@ import (
 
 var ErrThreadGone = errors.New("スレッドはdat落ちしています")
 
+// BrowserError はBrowser層での失敗を表す。URLには「実際に失敗した(組み立てた/取得しようと
+// した)URL」を可能な限り持たせる。ThreadInfo.URLはfetch成功後にしか更新されないため、
+// 失敗時のURLを示すには使えない — エラー自体に持たせることで、呼び出し側は常に
+// 「今回の失敗の対象URL」を正確に取得できる。
+type BrowserError struct {
+	Msg string
+	URL string
+	Err error
+}
+
+func (e *BrowserError) Error() string { return e.Msg }
+func (e *BrowserError) Unwrap() error { return e.Err }
+
 type cachedThreads struct {
 	data []ThreadInfo
 	time time.Time
@@ -92,12 +105,12 @@ func (b *Browser) GetThreadData(t *ThreadInfo) ([]Post, error) {
 
 	body, finalURL, err := b.fetcher.Fetch(readURL)
 	if err != nil {
-		return nil, fmt.Errorf("スレッド取得に失敗しました: %w", err)
+		return nil, &BrowserError{Msg: fmt.Sprintf("スレッド取得に失敗しました: %v", err), URL: readURL, Err: err}
 	}
 
 	html, err := decodeToUTF8(body)
 	if err != nil {
-		return nil, fmt.Errorf("エンコーディング変換エラー: %w", err)
+		return nil, &BrowserError{Msg: fmt.Sprintf("エンコーディング変換エラー: %v", err), URL: readURL, Err: err}
 	}
 
 	if strings.Contains(html, "dat落ち") {
@@ -115,17 +128,17 @@ func (b *Browser) GetThreadData(t *ThreadInfo) ([]Post, error) {
 func buildReadURL(boardURL, datFile string) (string, error) {
 	u, err := url.Parse(boardURL)
 	if err != nil {
-		return "", fmt.Errorf("board_urlの解析に失敗: %w", err)
+		return "", &BrowserError{Msg: fmt.Sprintf("board_urlの解析に失敗: %v", err), URL: boardURL, Err: err}
 	}
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(segments) == 0 || segments[len(segments)-1] == "" {
-		return "", fmt.Errorf("board_urlから板名を特定できません: %s", boardURL)
+		return "", &BrowserError{Msg: fmt.Sprintf("board_urlから板名を特定できません: %s", boardURL), URL: boardURL}
 	}
 	boardName := segments[len(segments)-1]
 
 	datNum := strings.TrimSuffix(datFile, ".dat")
 	if _, err := strconv.Atoi(datNum); err != nil {
-		return "", fmt.Errorf("不正なdat_file: %s", datFile)
+		return "", &BrowserError{Msg: fmt.Sprintf("不正なdat_file: %s", datFile), URL: boardURL}
 	}
 
 	return u.Scheme + "://" + u.Host + "/test/read.cgi/" + boardName + "/" + datNum + "/", nil
@@ -142,12 +155,12 @@ func (b *Browser) ExportThreadData(boardURL, datFile string, sinceNum int) (*Exp
 
 	body, finalURL, err := b.fetcher.Fetch(readURL)
 	if err != nil {
-		return nil, fmt.Errorf("スレッド取得に失敗しました: %w", err)
+		return nil, &BrowserError{Msg: fmt.Sprintf("スレッド取得に失敗しました: %v", err), URL: readURL, Err: err}
 	}
 
 	htmlStr, err := decodeToUTF8(body)
 	if err != nil {
-		return nil, fmt.Errorf("エンコーディング変換エラー: %w", err)
+		return nil, &BrowserError{Msg: fmt.Sprintf("エンコーディング変換エラー: %v", err), URL: readURL, Err: err}
 	}
 
 	if strings.Contains(htmlStr, "dat落ち") {
@@ -156,7 +169,7 @@ func (b *Browser) ExportThreadData(boardURL, datFile string, sinceNum int) (*Exp
 
 	u, err := url.Parse(boardURL)
 	if err != nil {
-		return nil, fmt.Errorf("board_urlの解析に失敗: %w", err)
+		return nil, &BrowserError{Msg: fmt.Sprintf("board_urlの解析に失敗: %v", err), URL: boardURL, Err: err}
 	}
 	datNum := strings.TrimSuffix(datFile, ".dat")
 	threadExternalID := fmt.Sprintf("5ch:%s%s%s", u.Host, u.Path, datNum)

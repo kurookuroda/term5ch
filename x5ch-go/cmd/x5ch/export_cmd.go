@@ -35,6 +35,8 @@ func runExportCommand(args []string) {
 	if err != nil {
 		if errors.Is(err, fivechbrowser.ErrThreadGone) {
 			fmt.Fprintln(os.Stderr, "スレッドはdat落ちしています")
+		} else if url := extractErrorURL(err); url != "" {
+			fmt.Fprintf(os.Stderr, "エラー: %v (URL: %s)\n", err, url)
 		} else {
 			fmt.Fprintln(os.Stderr, "エラー:", err)
 		}

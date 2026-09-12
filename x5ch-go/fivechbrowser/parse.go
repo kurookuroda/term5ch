@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	htmlpkg "html"
+
 	"github.com/dlclark/regexp2"
 )
 
@@ -62,9 +64,7 @@ func ParsePosts(html string) []Post {
 		rawMsg := message
 		rawMsg = strings.ReplaceAll(rawMsg, "<br>", "\n")
 		rawMsg = htmlTagPattern.ReplaceAllString(rawMsg, " ")
-		rawMsg = strings.ReplaceAll(rawMsg, "&gt;", ">")
-		rawMsg = strings.ReplaceAll(rawMsg, "&lt;", "<")
-		rawMsg = strings.ReplaceAll(rawMsg, "&amp;", "&")
+		rawMsg = htmlpkg.UnescapeString(rawMsg)
 		rawMsg = strings.TrimSpace(rawMsg)
 
 		cleanMessage, err := hRestorePattern.Replace(rawMsg, "h$1", -1, -1)
