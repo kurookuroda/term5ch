@@ -31,9 +31,9 @@ func main() {
 		case "export":
 			runExportCommand(os.Args[2:])
 			return
-		case "export-batch":
-			runExportBatchCommand(os.Args[2:])
-			return
+		//case "export-batch":
+		//	runExportBatchCommand(os.Args[2:])
+		//	return
 		case "search":
 			runSearchCommand(os.Args[2:])
 			return
