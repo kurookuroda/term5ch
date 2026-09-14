@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 
@@ -84,6 +85,12 @@ func (io2 *IO) ReadKey() (byte, error) {
 
 // ReadLine は raw モードのまま、Enterまで1行を手動エコー・バックスペース処理しながら読む。
 // Ruby版の gets() 相当(rawモードを一時解除する代わりに、Go版は手動でエコーする)。
+//
+// 修正前は default 節で 1バイトずつ rune(b) に変換していたため、日本語等の
+// マルチバイトUTF-8入力(検索キーワード・番号入力・履歴削除プロンプト等、ReadLineを
+// 使う全箇所)が文字化けする欠陥があった。Crystal版で先に発見・修正した内容と同じ
+// ロジック(先頭バイトのビットパターンから続きバイト数を判定 → ReadKeyで必要分読み
+// 足す → utf8.DecodeRuneで組み立て → 不正なら'?'にフォールバック)をここにも適用する。
 func (io2 *IO) ReadLine() (string, error) {
 	var buf []rune
 	for {
@@ -103,10 +110,53 @@ func (io2 *IO) ReadLine() (string, error) {
 		case b == 0x03:
 			return "", errInterrupt
 		default:
-			buf = append(buf, rune(b))
-			io2.Print(string(rune(b)))
+			r, err := io2.readChar(b)
+			if err != nil {
+				return "", err
+			}
+			buf = append(buf, r)
+			io2.Print(string(r))
 		}
 	}
+}
+
+// readChar は既に読み込み済みの先頭バイト first から、UTF-8の1文字(rune)を組み立てる。
+// first のビットパターンから続きバイト数を判定し、必要な分だけ ReadKey で追加読み込み
+// してから utf8.DecodeRune で組み立てる。不正なUTF-8バイト列だった場合は '?' に
+// フォールバックする(Crystal版 read_char と同じ設計)。
+func (io2 *IO) readChar(first byte) (rune, error) {
+	if first < 0x80 {
+		return rune(first), nil
+	}
+
+	var extraBytes int
+	switch {
+	case first&0b1110_0000 == 0b1100_0000:
+		extraBytes = 1
+	case first&0b1111_0000 == 0b1110_0000:
+		extraBytes = 2
+	case first&0b1111_1000 == 0b1111_0000:
+		extraBytes = 3
+	default:
+		// 不正な先頭バイト。ベストエフォートで1バイトのまま扱う。
+		return rune(first), nil
+	}
+
+	buf := make([]byte, extraBytes+1)
+	buf[0] = first
+	for i := 0; i < extraBytes; i++ {
+		b, err := io2.ReadKey()
+		if err != nil {
+			return 0, err
+		}
+		buf[i+1] = b
+	}
+
+	r, size := utf8.DecodeRune(buf)
+	if r == utf8.RuneError && size == 1 {
+		return '?', nil // 不正なUTF-8バイト列だった場合のフォールバック
+	}
+	return r, nil
 }
 
 type sentinelErr string
