@@ -30,10 +30,15 @@ func exportOutputDir() string {
 }
 
 // sanitizeFilename はOSのファイル名として不正な文字を "_" に置換し、長すぎる場合は切り詰める。
+// 80文字を超える場合の切り詰めは、rune(文字)単位で行う。バイト単位(len(s)/s[:80])で切ると
+// マルチバイト文字(日本語など、UTF-8で1文字3バイトが多い)の途中で切断され、末尾が不正な
+// UTF-8バイト列になって文字化けやゴミ文字混入の原因になるため注意。Crystal版のcleaned[0, 80]
+// (文字数ベースのスライス)に合わせている。
 func sanitizeFilename(s string) string {
 	cleaned := strings.TrimSpace(filenameUnsafePattern.ReplaceAllString(s, "_"))
-	if len(cleaned) > 80 {
-		cleaned = cleaned[:80]
+	runes := []rune(cleaned)
+	if len(runes) > 80 {
+		cleaned = string(runes[:80])
 	}
 	if cleaned == "" {
 		return "no_title"
