@@ -62,6 +62,10 @@ type Config[T any] struct {
 	OnHistoryManage     func(io *IO) (interrupted bool)
 	OnHistoryDeleteItem func(io *IO, idx int, item Item[T]) (Item[T], bool)
 
+	// OnExportItem は'e'(Markdown)/'E'(JSON)キー押下→番号入力後に呼ばれる。
+	// 引数は(IO, 選択された番号, その項目, Markdown出力ならtrue)。項目自体は変化しないため戻り値なし。
+	OnExportItem func(io *IO, idx int, item Item[T], asMarkdown bool)
+
 	// CanEnqueue は'm'キー押下時、番号入力プロンプトを出す前のチェック。
 	// nilなら常に許可。falseを返すとメッセージ表示のみでプロンプトを出さない
 	// (Ruby版の「Token未設定なら即エラー表示」に対応)。
@@ -247,6 +251,9 @@ func Run[T any](kr *keyreader.KeyReader, out io.Writer, fd int, cfg Config[T]) (
 		} else if cfg.OnHistoryManage != nil {
 			promptKeys += ",H"
 		}
+		if cfg.OnExportItem != nil {
+			promptKeys += ",e/E"
+		}
 		promptKeys += "] > "
 
 		if needsFullRedraw {
@@ -369,6 +376,24 @@ func Run[T any](kr *keyreader.KeyReader, out io.Writer, fd int, cfg Config[T]) (
 							if updated, ok := cfg.OnEnqueue(sio, idx, filteredItems[idx]); ok {
 								filteredItems[idx] = updated
 							}
+						}
+					}
+				}
+				needsFullRedraw = true
+			}
+		case 'e', 'E':
+			if cfg.OnExportItem != nil {
+				asMarkdown := b == 'e'
+				sio.Print("\r\nエクスポートする番号を入力 > ")
+				line, err := sio.ReadLine()
+				if errors.Is(err, ErrInterrupted) {
+					return Result[T]{Action: ActionInterrupt, Page: currentPage}, nil
+				}
+				if err == nil {
+					if idx, convErr := strconv.Atoi(strings.TrimSpace(line)); convErr == nil {
+						if idx >= 0 && idx < len(filteredItems) {
+							sio.Println("エクスポート中...")
+							cfg.OnExportItem(sio, idx, filteredItems[idx], asMarkdown)
 						}
 					}
 				}
