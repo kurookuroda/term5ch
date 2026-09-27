@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
@@ -63,11 +64,19 @@ type Pager struct {
 	lines     []line
 	lineInfo  []lineInfo
 	jumpIndex int
+
+	// onExport は'e'(Markdown)/'E'(JSON)キー押下時に呼ばれる。
+	// 引数は(表示中スレッドのThreadInfo, Markdown出力ならtrue)、戻り値は画面に一時表示する結果メッセージ。
+	// nilなら(showRecentStreamなど複数スレッド表示時)キーは無視される。
+	onExport func(th *fivechbrowser.ThreadInfo, asMarkdown bool) string
+	// exportThread は最初のContentHeaderのThread。'e'/'E'キーで対象となるスレッド。
+	exportThread *fivechbrowser.ThreadInfo
 }
 
 // New はコンテンツ項目からPagerを構築する。Ruby版 initialize + prepare_content に対応。
-func New(content []ContentItem) *Pager {
-	p := &Pager{}
+// onExport は 'e'/'E'キーでのエクスポート処理(不要ならnilを渡す)。
+func New(content []ContentItem, onExport func(th *fivechbrowser.ThreadInfo, asMarkdown bool) string) *Pager {
+	p := &Pager{onExport: onExport}
 	p.prepareContent(content)
 	return p
 }
@@ -84,6 +93,9 @@ func (p *Pager) prepareContent(content []ContentItem) {
 		switch item.Type {
 		case ContentHeader:
 			th := item.Thread
+			if p.exportThread == nil {
+				p.exportThread = th
+			}
 			p.addLine(strings.Repeat(" ", 60), th, 0, styleBgBlue)
 			title := ""
 			url := ""
@@ -202,6 +214,14 @@ func (p *Pager) Start(kr *keyreader.KeyReader, out io.Writer, fd int) (*Result, 
 			currentLine = 0
 		case 'G':
 			currentLine = maxScroll
+		case 'e', 'E':
+			if p.onExport != nil && p.exportThread != nil {
+				asMarkdown := b == 'e'
+				fmt.Fprint(out, "\r\n\x1b[Kエクスポート中...")
+				message := p.onExport(p.exportThread, asMarkdown)
+				fmt.Fprintf(out, "\r\n\x1b[K%s\r\n", message)
+				time.Sleep(1 * time.Second)
+			}
 		case 0x1b: // ESC
 			b2, err := kr.ReadByte()
 			if err != nil || b2 != '[' {
