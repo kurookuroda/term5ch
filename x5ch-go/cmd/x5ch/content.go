@@ -44,7 +44,11 @@ func showThread(browser *fivechbrowser.Browser, hist *history.Manager, t fivechb
 		content = append(content, pager.ContentItem{Type: pager.ContentSystemMsg, Thread: &t, Message: "(新着なし - 最終レスまで既読です)"})
 	}
 
-	result, err := pager.New(content).Start(kr, out, fd)
+	exportCb := func(target *fivechbrowser.ThreadInfo, asMarkdown bool) string {
+		return performExport(browser, target.BoardURL, target.DatFile, asMarkdown)
+	}
+
+	result, err := pager.New(content, exportCb).Start(kr, out, fd)
 	if err == nil && result != nil && result.Res > 0 {
 		hist.UpdateHistory(t, result.Res, "")
 		fmt.Fprintf(out, "\r\n履歴を更新しました: %d\r\n", result.Res)
@@ -123,7 +127,7 @@ func showRecentStream(browser *fivechbrowser.Browser, hist *history.Manager, thr
 		return
 	}
 
-	result, err := pager.New(content).Start(kr, out, fd)
+	result, err := pager.New(content, nil).Start(kr, out, fd)
 	if err == nil && result != nil && result.Thread != nil && result.Res > 0 {
 		hist.UpdateHistory(*result.Thread, result.Res, "")
 		fmt.Fprintf(out, "\r\n履歴を更新しました: %s (%d)\r\n", result.Thread.Title, result.Res)
