@@ -52,6 +52,59 @@ type ExportResult struct {
 	Posts  []ExportPost `json:"posts"`
 }
 
+// ToMarkdown はこのJSON構造(source/thread/posts)にできるだけ対応させたMarkdown表現を作る。
+// 見出し+メタ情報の後、レスごとに番号・名前・ID・日時・本文・reply_toを列挙する。
+// Crystal版 ExportResult#to_markdown と同一フォーマット。
+func (r *ExportResult) ToMarkdown() string {
+	var sb strings.Builder
+
+	boardName := r.Thread.BoardName
+	if boardName == "" {
+		boardName = "(不明)"
+	}
+	createdAt := r.Thread.CreatedAt
+	if createdAt == "" {
+		createdAt = "(不明)"
+	}
+
+	sb.WriteString("# " + r.Thread.Title + "\n\n")
+	sb.WriteString("- 板: " + boardName + "\n")
+	sb.WriteString("- board_url: " + r.Source.BoardURL + "\n")
+	sb.WriteString("- thread_url: " + r.Source.ThreadURL + "\n")
+	sb.WriteString("- dat_file: " + r.Source.DatFile + "\n")
+	sb.WriteString("- external_id: " + r.Thread.ExternalID + "\n")
+	sb.WriteString("- 作成日時: " + createdAt + "\n")
+	sb.WriteString("- 取得日時: " + r.Source.ScrapedAt + "\n")
+	sb.WriteString("- レス数(全体): " + strconv.Itoa(r.Thread.PostCount) + "\n")
+	sb.WriteString("- レス数(このファイル): " + strconv.Itoa(len(r.Posts)) + "\n")
+	sb.WriteString("\n---\n\n")
+
+	for _, p := range r.Posts {
+		sb.WriteString("## " + strconv.Itoa(p.Num) + " " + p.AuthorNameDisplay)
+		if p.UserID != "" {
+			sb.WriteString(" ID:" + p.UserID)
+		}
+		postedAt := p.PostedAt
+		if postedAt == "" {
+			postedAt = p.PostedAtRaw
+		}
+		sb.WriteString(" " + postedAt + "\n\n")
+
+		if len(p.ReplyTo) > 0 {
+			nums := make([]string, len(p.ReplyTo))
+			for i, n := range p.ReplyTo {
+				nums[i] = strconv.Itoa(n)
+			}
+			sb.WriteString("> Reply to: " + strings.Join(nums, ", ") + "\n\n")
+		}
+
+		sb.WriteString(p.BodyDisplay + "\n\n")
+		sb.WriteString("---\n\n")
+	}
+
+	return sb.String()
+}
+
 var (
 	// mailLinkPattern はCloudflareのメール難読化リンクを検出する。
 	// マッチしない場合はmail欄が空(または通常のリンクではない形)であることを示す。
