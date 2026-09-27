@@ -197,6 +197,11 @@ func Run[T any](kr *keyreader.KeyReader, out io.Writer, fd int, cfg Config[T]) (
 	}
 	defer term.Restore(fd, oldState)
 
+	cols := 80
+	if width, _, sizeErr := term.GetSize(fd); sizeErr == nil && width > 0 {
+		cols = width
+	}
+
 	sio := &IO{kr: kr, out: out}
 
 	originalItems := cfg.Items
@@ -233,7 +238,7 @@ func Run[T any](kr *keyreader.KeyReader, out io.Writer, fd int, cfg Config[T]) (
 		if cfg.StatusLine != nil {
 			status = cfg.StatusLine()
 		}
-		headerStr := fmt.Sprintf("--- %s (%d/%d)%s ---", displayTitle, currentPage+1, totalPages, status)
+		headerStr := truncateLine(fmt.Sprintf("--- %s (%d/%d)%s ---", displayTitle, currentPage+1, totalPages, status), cols)
 
 		lastIdx := len(viewItems) - 1
 		if lastIdx < 0 {
@@ -260,7 +265,8 @@ func Run[T any](kr *keyreader.KeyReader, out io.Writer, fd int, cfg Config[T]) (
 			fmt.Fprint(out, "\x1b[H\x1b[2J")
 			fmt.Fprint(out, headerStr+"\r\n")
 			for i, item := range viewItems {
-				fmt.Fprintf(out, "[%d] %s\r\n", startIdx+i, item.Text)
+				line := truncateLine(fmt.Sprintf("[%d] %s", startIdx+i, item.Text), cols)
+				fmt.Fprint(out, line+"\r\n")
 			}
 			fmt.Fprint(out, promptKeys+inputBuffer)
 			needsFullRedraw = false
