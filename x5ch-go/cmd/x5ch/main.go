@@ -262,6 +262,7 @@ func runThreadLoop(browser *fivechbrowser.Browser, hist *history.Manager, worker
 				return deleteHistoryForThread(sio, hist, item.Value)
 			},
 			OnQueueManage: func(sio *selector.IO) bool { return manageQueue(sio, worker) },
+			OnExportItem:  exportItemHandler(browser),
 			HelpText:      helpText("thread"),
 		})
 		if err != nil {
@@ -322,6 +323,7 @@ func runGlobalSearch(browser *fivechbrowser.Browser, hist *history.Manager, work
 			CanEnqueue:    enqueueGuard(discordMgr),
 			OnEnqueue:     enqueueHandler(worker, hist),
 			OnQueueManage: func(sio *selector.IO) bool { return manageQueue(sio, worker) },
+			OnExportItem:  exportItemHandler(browser),
 			HelpText:      helpText("thread"),
 		})
 		if err != nil {
@@ -366,6 +368,17 @@ func enqueueHandler(worker *transfer.Worker, hist *history.Manager) func(sio *se
 		sio.Println(">> キューに追加: " + state.Thread.Title)
 		time.Sleep(500 * time.Millisecond)
 		return selector.Item[threadItemState]{Text: renderThreadItem(state.Thread, state.IsQueued), Value: state}, true
+	}
+}
+
+// exportItemHandler は'e'(Markdown)/'E'(JSON)キーでの、一覧上の(未オープンの)スレッドに対する
+// エクスポート処理。スレッド一覧・全板検索結果一覧の両方で共通して使う。
+func exportItemHandler(browser *fivechbrowser.Browser) func(sio *selector.IO, idx int, item selector.Item[threadItemState], asMarkdown bool) {
+	return func(sio *selector.IO, idx int, item selector.Item[threadItemState], asMarkdown bool) {
+		t := item.Value.Thread
+		message := performExport(browser, t.BoardURL, t.DatFile, asMarkdown)
+		sio.Println(message)
+		time.Sleep(1 * time.Second)
 	}
 }
 
